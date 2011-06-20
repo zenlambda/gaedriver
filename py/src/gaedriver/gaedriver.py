@@ -74,6 +74,10 @@ NO_ADMIN_CONSOLE_ON_SDK = 'ADMIN_CONSOLE_NOT_AVAILABLE_FOR_SDK'
 # cannot be used for testing right away.
 SDK_STARTUP_WAIT = 5
 
+# Applications are not always available right away after an update. We
+# therefore wait a few seconds before we continue.
+APP_DEPLOY_WAIT = 2
+
 DEFAULT_BACKEND_INSTANCES = 2
 
 
@@ -226,10 +230,10 @@ class Config(object):
             else:
                 self.ac_hostname = 'appengine.google.com'
         else:
-            # We assume a cluster hostname which does not identify an
-            # appserver to be an dev_appserver instance. This means the
-            # application hostname is the given clustername and no admin
-            # console is available.
+            # We assume a cluster hostname that does not identify an
+            # appserver to be an dev_appserver instance. This means
+            # the application hostname is the given clustername and no
+            # admin console is available.
             self.app_hostname = cluster_hostname
             self.ac_hostname = NO_ADMIN_CONSOLE_ON_SDK
             # TODO(schuppe): configure 'app_hostname' for backends on the SDK.
@@ -288,12 +292,12 @@ def load_config_from_file(file_path, index=0, _open_fct=open):
         if parser.has_option(section_name, option):
             kwargs[option] = parser.get(section_name, option)
     if 'app_id' not in kwargs:
-        raise ValueError('"app_id" ist not set in config for "%s".' %
+        raise ValueError('"app_id" is not set in config for "%s".' %
                          section_name)
     args = []
     for option in REQUIRED_CONFIG_OPTIONS:
         if option not in kwargs:
-            raise ValueError('"%s" ist not set in config for "%s".' %
+            raise ValueError('"%s" is not set in config for "%s".' %
                              (option, section_name))
         args.append(kwargs.pop(option))
     # pylint: disable-msg=W0142
@@ -359,10 +363,10 @@ def update_app(config, options=None, rollback_retries=MAX_ROLLBACK_RETRIES):
     """Update an application with appcfg.
 
     If an update fails because a previous update was not cleanly
-    finished, a rollback is tried as of as specifed by
-    'rollback_retries'.    If the rollback fails as well, 'AppcfgError' is
-    raised.    If appcfg gives another error which cannot be handled with
-    a rollback an 'AppcfgError' is raised as well.
+    finished, a rollback is tried as specified by 'rollback_retries'.
+    If the rollback fails as well, 'AppcfgError' is raised. If appcfg
+    gives another error which cannot be handled with a rollback an
+    'AppcfgError' is raised as well.
 
     Args:
       config: A Config instance.
@@ -398,10 +402,10 @@ def update_app(config, options=None, rollback_retries=MAX_ROLLBACK_RETRIES):
                 raise AppcfgError('Could not rollback: %s' % stdout)
             rollback_retries -= 1
         elif 'Error' in stdout:
-            msg = 'An error occured which canot be dealt with : %s' % stdout
+            msg = 'Could not update : %s' % stdout
             raise AppcfgError(msg)
         else:
-            time.sleep(2)
+            time.sleep(APP_DEPLOY_WAIT)
             success = True
     return stdout, stderr
 
@@ -412,7 +416,7 @@ class DevAppServerThread(threading.Thread):
     '''
     dev_appserver_thread = DevAppServerThread(config)
     dev_appserver_thread.start()
-    [..]
+    ...
     dev_appserver_thread.stop()
     '''
     """
@@ -445,10 +449,10 @@ class DevAppServerThread(threading.Thread):
         """Build dev_appserver arguments from __init__ arguments.
 
         Returns:
-          A list of arguments which can be used to a start dev_appserver.
+          A list of arguments to use when starting dev_appserver.
 
         Raises:
-          ValueError: If cluster_hostname does not look like localhost:PORT.
+          ValueError: If app_hostname does not match localhost:PORT.
         """
         argv = []
         if self.config.app_hostname.count(':') > 1:
@@ -470,13 +474,14 @@ class DevAppServerThread(threading.Thread):
         return argv
 
     def _replace_app_yaml(self):
-        """Replace a original application's app.yaml with a working copy.
+        """Replace the original application's app.yaml with a working copy.
 
-        This is necessary because the dev_appserver does not allow to
-        change to application id on when starting the server.
+
+        This is necessary because dev_appserver doesn't provide a
+        command-line option for overriding the application id.
 
         The original app.yaml is saved and can be restored with
-        _RestoreAppYaml().
+        _restore_app_yaml().
 
         """
         shutil.copy(self.app_yaml_path, self.app_yaml_bak_path)
@@ -509,9 +514,6 @@ class DevAppServerThread(threading.Thread):
                                      stdout=subprocess.PIPE,
                                      stderr=subprocess.PIPE)
         self.pid = popen_obj.pid
-        # Send a yes ("Y") when the dev_appserver asks whether it should
-        # check for updates.
-        popen_obj.communicate('Y')
 
     def stop(self):
         if self.pid:

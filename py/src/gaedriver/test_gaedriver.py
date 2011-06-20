@@ -15,7 +15,7 @@
 # limitations under the License.
 
 
-"""Helper module for end-to-end tests of App Engine apps."""
+"""Tests for gaedriver."""
 
 __author__ = 'schuppe@google.com (Robert Schuppenies)'
 
@@ -35,7 +35,7 @@ GAEDRIVER_TEST_FLAGS = {'app_id': 'example-id',
                         'backend_id': 'backend-id',
                         'backend_instances': 5,
                         'cluster_hostname': 'appspot.com',
-                         'username': 'alice@example.com',
+                        'username': 'alice@example.com',
                         'password': 'secret',
                         'sdk_dir': '/path/to/sdk',
                         'app_dir': '/path/to/app',
@@ -125,6 +125,8 @@ class ConfigTest(unittest.TestCase):
     def test_default(self):
         # Test the minimum set of required arguments.
         config = gaedriver.Config(self.app_id, self.cluster_hostname)
+        self.assertEqual(self.app_id, config.app_id)
+        self.assertEqual(self.cluster_hostname, config.cluster_hostname)
         self.assertEqual('', config.backend_id)
         self.assertEqual(0, config.backend_instances)
         self.assertEqual('', config.domain)
@@ -348,7 +350,7 @@ class BackendsYamlFileModificationTest(unittest.TestCase):
         self.assertEqual(self.orig_content,
                          self.fake_file_mod(self.orig_yaml_path).read())
         gaedriver._create_backends_yaml(self.test_config)
-        # And and afterwards a backup file was created,
+        # and afterwards a backup file was created,
         self.assertTrue(self.fake_os_mod.path.exists(self.backup_yaml_path))
         # having the content of the original file.
         self.assertEqual(self.orig_content,
@@ -368,7 +370,7 @@ class BackendsYamlFileModificationTest(unittest.TestCase):
         self.assertEqual(self.test_content,
                          self.fake_file_mod(self.orig_yaml_path).read())
         gaedriver._restore_backends_yaml(self.test_config)
-        # And and afterwards the backup file was removed.
+        # and afterwards the backup file was removed.
         self.assertFalse(self.fake_os_mod.path.exists(self.backup_yaml_path))
         # Also test that the backends.yaml was replaced with its original
         # content.
@@ -501,6 +503,8 @@ class DevAppServerThreadTest(unittest.TestCase):
         config = get_test_config()
         dev_thread = gaedriver.DevAppServerThread(config)
         config.app_hostname = 'something:with:3:colons'
+        self.assertRaises(ValueError, dev_thread._get_argv)
+        config.app_hostname = 'something:with:2colons'
         self.assertRaises(ValueError, dev_thread._get_argv)
 
     def test_get_argv_port_option(self):
