@@ -24,6 +24,7 @@ import os
 import sys
 
 # Note that you have to install the unittest2 package, first.
+# - pylint: disable-msg=F0401,W0611
 try:
     import unittest2
     from pyfakefs import fake_filesystem
@@ -57,23 +58,23 @@ def run_e2e_tests():
 
 def main(test_size):
     if test_size == 'unit':
-      run_unit_tests()
+        run_unit_tests()
     elif test_size == 'e2e':
-      run_e2e_tests()
+        run_e2e_tests()
     elif test_size == 'all':
-      run_e2e_tests()
-      run_unit_tests()
+        run_e2e_tests()
+        run_unit_tests()
     else:
-      print 'Say what? Expected test size is either "unit", "e2e", or "all".'
-      sys.exit(1)
+        print 'Say what? Expected test size is either "unit", "e2e", or "all".'
+        sys.exit(1)
 
 
 if __name__ == '__main__':
-    parser = optparse.OptionParser(USAGE)
-    options, args = parser.parse_args()
-    if len(args) != 1:
+    PARSER = optparse.OptionParser(USAGE)
+    OPTIONS, ARGS = PARSER.parse_args()
+    if len(ARGS) != 1:
         print 'Error: Exactly 2 arguments required.'
-        parser.print_help()
+        PARSER.print_help()
         sys.exit(1)
-    TEST_SIZE = args[0]
+    TEST_SIZE = ARGS[0]
     main(TEST_SIZE)
