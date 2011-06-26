@@ -1,6 +1,7 @@
 [config]
 app_id: my-app-id
-cluster_hostname: appspot.com
+# For the production cluster, use "appspot.com".
+cluster_hostname: localhost:8080
 sdk_dir: /path/to/sdk
 app_dir: /path/to/app
 username: alice@example.com

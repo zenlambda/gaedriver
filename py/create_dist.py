@@ -94,6 +94,7 @@ def create_zip(input_dir, output_file):
     for root, _, files in os.walk(input_dir):
         for input_file in files:
             _, ext = os.path.splitext(input_file)
+            ext = ext.strip('.')
             if ext in ('pyc', 'pyo'):
                 continue
             src = os.path.join(root, input_file)
