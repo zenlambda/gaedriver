@@ -22,8 +22,15 @@ __author__ = 'schuppe@google.com (Robert Schuppenies)'
 import optparse
 import os
 import sys
+
 # Note that you have to install the unittest2 package, first.
-import unittest2
+try:
+    import unittest2
+    from pyfakefs import fake_filesystem
+except ImportError:
+    print "Could not import unittest2 and/or pyfakefs."
+    print "Please make sure you have add the lib/ directory to your PYTHONPATH."
+    sys.exit(1)
 
 USAGE = """%prog [unit|e2e|all]"""
 
