@@ -490,7 +490,7 @@ class DevAppServerThread(threading.Thread):
             if line.startswith('application:'):
                 line = 'application: %s' % self.config.app_id
             else:
-                line = line
+                line = line.strip()
             print line
         f.close()
 
