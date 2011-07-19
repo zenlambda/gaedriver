@@ -547,8 +547,8 @@ def _create_backends_yaml(config):
     lines = []
     lines.append('backends:')
     lines.append('- name: %s' % config.backend_id)
-    lines.append('    options: public, dynamic')
-    lines.append('    instances: %s' % instances)
+    lines.append('  options: public, dynamic')
+    lines.append('  instances: %s' % instances)
     backends_yaml = open(backends_yaml_path, 'w')
     backends_yaml.write(os.linesep.join(lines))
     backends_yaml.close()

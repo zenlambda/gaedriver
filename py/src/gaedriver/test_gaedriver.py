@@ -339,8 +339,8 @@ class BackendsYamlFileModificationTest(unittest.TestCase):
         lines = []
         lines.append('backends:')
         lines.append('- name: %s' % backend_id)
-        lines.append('    options: public, dynamic')
-        lines.append('    instances: %s' % instances)
+        lines.append('  options: public, dynamic')
+        lines.append('  instances: %s' % instances)
         return os.linesep.join(lines)
 
     def test_create_backends_yaml(self):
