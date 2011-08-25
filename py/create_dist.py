@@ -106,7 +106,7 @@ def create_zip(input_dir, output_file):
 def main():
     """Main function."""
     version = get_version()
-    output_filename = 'gaedriver-%s.zip' % version
+    output_filename = 'gaedriver_py-%s.zip' % version
     temp_dir = create_dist_dir()
     create_zip(temp_dir, output_filename)
 
@@ -119,4 +119,3 @@ if __name__ == '__main__':
         PARSER.print_help()
         sys.exit(1)
     main()
-
