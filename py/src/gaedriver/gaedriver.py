@@ -42,6 +42,7 @@ CONFIG_OPTIONS = {
     'username': 'Username used for authentication (email address).',
     'password': 'Password used for authentication.',
     'ac_hostname': 'Hostname of the admin console.',
+    'appcfg_flags': 'Extra flags to pass to appcfg.',
     }
 # Mandatory options for Config ojects.
 REQUIRED_CONFIG_OPTIONS = ['app_id',
@@ -154,6 +155,7 @@ class Config(object):
     - app_dir: Local directory of the application.
     - username: Username used for authentication (email address).
     - password: Password used for authentication.
+    - appcfg_flags: Extra flags to pass to appcfg.
 
     Not all attributes will have values assigned. For example apps which
     do not run in a custom domain will not have a 'domain' attribute
@@ -165,7 +167,7 @@ class Config(object):
                  backend_id=None, backend_instances=None,
                  sdk_dir=None, app_dir=None,
                  username=None, password=None,
-                 ac_hostname=None):
+                 ac_hostname=None, appcfg_flags=None):
         """Initialize configuration.
 
         The 'app_id' consists of three components: partition, domain, and
@@ -188,6 +190,7 @@ class Config(object):
           username: Username used for authentication (email address).
           password: Password used for authentication.
           ac_hostname: Hostname of the admin console.
+          appcfg_flags: Extra flags to pass to appcfg (string).
 
         Raises:
           TypeError: If app_id or cluster_hostname are not strings.
@@ -240,6 +243,7 @@ class Config(object):
         self.app_dir = app_dir if app_dir else ''
         self.username = username if username else ''
         self.password = password if password else ''
+        self.appcfg_flags = appcfg_flags if appcfg_flags else ''
 
 
 def load_config_from_file(file_path, index=0, _open_fct=open):
@@ -265,6 +269,7 @@ def load_config_from_file(file_path, index=0, _open_fct=open):
     username: alice@example.com
     password: secret
     ac_hostname: appspot.com
+    appcfg_flags: --runtime=python27 -R
     '''
 
     Args:
@@ -331,6 +336,9 @@ def run_appcfg_with_auth(config, action, options=None, args=None):
     argv.append('--passin')
     if config.app_id:
         argv.append('--application=%s' % config.app_id)
+    if config.appcfg_flags:
+        for flag in config.appcfg_flags.split(' '):
+            argv.append(flag)
     if config.ac_hostname:
         argv.append('--server=' + config.ac_hostname)
     if options:
@@ -489,7 +497,7 @@ class DevAppServerThread(threading.Thread):
             if line.startswith('application:'):
                 line = 'application: %s' % self.config.app_id
             else:
-                line = line.strip()
+                line = line.strip(os.linesep)
             print line
         f.close()
 
@@ -513,6 +521,10 @@ class DevAppServerThread(threading.Thread):
                                      stdout=subprocess.PIPE,
                                      stderr=subprocess.PIPE)
         self.pid = popen_obj.pid
+        # communicate() will keep reading from stdin and
+        # stderr. Without it, the buffer would be filled up and the
+        # process blocked until the buffer can accept more data.
+        popen_obj.communicate()
 
     def stop(self):
         if self.pid:

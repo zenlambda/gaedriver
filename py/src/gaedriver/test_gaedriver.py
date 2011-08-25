@@ -114,6 +114,7 @@ class ConfigTest(unittest.TestCase):
         self.app_dir = '/path/to/app_dir'
         self.username = 'alice@example.com'
         self.password = 'secret'
+        self.appcfg_flags = '--runtime=python27 -R'
 
     def test_invalid_args(self):
         # Test that invalid input is not accepted.
@@ -135,6 +136,7 @@ class ConfigTest(unittest.TestCase):
         self.assertEqual('', config.app_dir)
         self.assertEqual('', config.username)
         self.assertEqual('', config.password)
+        self.assertEqual('', config.appcfg_flags)
 
     def test_backend_for_appserver(self):
         # Test construction of hostnames for tests against appserver.
@@ -205,6 +207,12 @@ class ConfigTest(unittest.TestCase):
                                 ac_hostname='example.com')
         self.assertEqual('example.com', conf.ac_hostname)
 
+    def test_appcfg_flags(self):
+        # Test construction of the extra appcfg flags.
+        conf = gaedriver.Config(self.app_id, self.cluster_hostname,
+                                appcfg_flags=self.appcfg_flags)
+        self.assertEqual(self.appcfg_flags, conf.appcfg_flags)
+
 
 class LoadConfigFromFileTest(unittest.TestCase):
     """Tests for GetConfigCopy."""
@@ -221,6 +229,7 @@ class LoadConfigFromFileTest(unittest.TestCase):
                                     'username': 'alice@example.com',
                                     'password': 'secret',
                                     'ac_hostname': 'appspot.com',
+                                    'appcfg_flags': '--runtime=python27 -R',
                                     }
 
     # pylint: disable-msg=R0201
@@ -252,6 +261,7 @@ class LoadConfigFromFileTest(unittest.TestCase):
         self.assertEqual('alice@example.com', config.username)
         self.assertEqual('secret', config.password)
         self.assertEqual('appspot.com', config.ac_hostname)
+        self.assertEqual('--runtime=python27 -R', config.appcfg_flags)
 
     def test_missing_required_args(self):
         for arg in gaedriver.REQUIRED_CONFIG_OPTIONS:
@@ -476,19 +486,37 @@ class DevAppServerThreadTest(unittest.TestCase):
 
     def setUp(self):
         self.orig_os = gaedriver.os
+        self.orig_fileinput_os = gaedriver.os
         self.orig_shutil = gaedriver.shutil
         self.orig_time = gaedriver.time
         self.orig_threading = gaedriver.threading
+        self.orig_builtins_open = __builtins__['open']
 
     def tearDown(self):
         gaedriver.os = self.orig_os
+        gaedriver.fileinput.os = self.orig_fileinput_os
         gaedriver.shutil = self.orig_shutil
         gaedriver.time = self.orig_time
         gaedriver.threading = self.orig_threading
+        __builtins__['open'] = self.orig_builtins_open
 
     # pylint: disable-msg=R0201
     def get_app_yaml_content(self, app_id):
-        return 'application: %s' % app_id
+        """Get the content of a typical app.yaml file."""
+        lines = []
+        lines.append('application: %s' % app_id)
+        lines.append('version: 1')
+        lines.append('runtime: python')
+        lines.append('api_version: 1')
+        lines.append('')
+        lines.append('handlers:')
+        lines.append('- url: .*')
+        lines.append('  script: main.py')
+        lines.append('')
+        lines.append('builtins:')
+        lines.append('- remote_api: on')
+        lines.append('')
+        return os.linesep.join(lines)
 
     def test_thread_init(self):
         config = get_test_config()
@@ -542,10 +570,29 @@ class DevAppServerThreadTest(unittest.TestCase):
         self.assertTrue('--clear_datastore' not in argv)
 
     def test_replace_app_yaml(self):
-        # fileinput.FileInput is not easily testable, since it uses
-        # functionality that fake_filesystem does not provide. I therefore
-        # decided to leave _replace_app_yaml() for manual testing.
-        pass
+        # Create fake file system.
+        fake_fs = fake_filesystem.FakeFilesystem()
+        fake_os = fake_filesystem.FakeOsModule(fake_fs)
+        fake_open = fake_filesystem.FakeFileOpen(fake_fs)
+        fake_shutil_module = fake_filesystem_shutil.FakeShutilModule(fake_fs)
+        __builtins__['open'] = fake_open
+        gaedriver.fileinput.os = fake_os
+        gaedriver.shutil = fake_shutil_module
+        # Setup fake app.yaml.
+        app_dir = '/path/to/app'
+        app_yaml_path = os.path.join(app_dir, 'app.yaml')
+        orig_app_id = 'original-app-id'
+        test_app_id = 'test-app-id'
+        orig_app_yaml_content = self.get_app_yaml_content(orig_app_id)
+        new_app_yaml_content = self.get_app_yaml_content(test_app_id)
+        config = get_test_config({'app_id': test_app_id, 'app_dir': app_dir})
+        fake_fs.CreateFile(app_yaml_path, contents=orig_app_yaml_content)
+        # Execute _replace_app_yaml and make sure the modified file
+        # looks like original file except for the application ID.
+        dev_thread = gaedriver.DevAppServerThread(config)
+        dev_thread._replace_app_yaml()
+        self.assertEqual(new_app_yaml_content,
+                         fake_open(app_yaml_path).read())
 
     def test_restore_app_yaml(self):
         app_dir = '/path/to/app'
