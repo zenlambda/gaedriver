@@ -96,12 +96,26 @@ class ConfigError(Error):
     pass
 
 
-def _is_cluster_appserver(cluster_hostname):
+def _check_required_config_attr(config, required_attributes):
+    """Check that 'config' has all of the required attributes.
+
+    Args:
+      config: A Config instance.
+      required_attributes: A list of attribute names.
+
+    Raises:
+      ValueError: If any of the required attributes is not present.
+    """
+    for attr in required_attributes:
+        if not getattr(config, attr):
+            raise ValueError('"config.%s" has to be set.' % attr)
+
+
+def is_cluster_appserver(cluster_hostname):
     """Check if the cluster hostname identifies an appserver instance.
 
-    For now, we simply mark configuration where 'cluster_hostname'
-    starts with "localhost" as dev_appserver, everything else as
-    app_server.
+    For now, we simply identify a 'cluster_hostname' that starts with
+    "localhost" as dev_appserver, everything else as appserver.
 
     Args:
       cluster_hostname: Name of the cluster an app runs in.
@@ -120,21 +134,6 @@ def _is_cluster_appserver(cluster_hostname):
         return True
     else:
         return False
-
-
-def _check_required_config_attr(config, required_attributes):
-    """Check that the passed on Config object has all required attributes.
-
-    Args:
-      config: A Config instance.
-      required_attributes: A list of attribute names.
-
-    Raises:
-      ValueError: If any of the required attributes is not present.
-    """
-    for attr in required_attributes:
-        if not getattr(config, attr):
-            raise ValueError('"config.%s" has to be set.' % attr)
 
 
 # pylint: disable-msg=R0912,R0902
@@ -215,7 +214,7 @@ class Config(object):
         if self.display_app_id.find(':') >= 0:
             self.domain, self.display_app_id = self.display_app_id.split(':')
         self.cluster_hostname = cluster_hostname
-        if _is_cluster_appserver(cluster_hostname):
+        if is_cluster_appserver(cluster_hostname):
             # If a backend is specified, point 'app_hostname' to this
             # backend.
             if not backend_id:
@@ -593,7 +592,7 @@ def setup_app(config):
       A token that identifies the app. This token has to be passed to
       teardown_app().
     """
-    if _is_cluster_appserver(config.cluster_hostname):
+    if is_cluster_appserver(config.cluster_hostname):
         if config.backend_id:
             _create_backends_yaml(config)
         stdout, _ = update_app(config)
@@ -621,7 +620,7 @@ def teardown_app(config, app_token):
       config: A Config instance.
       app_token: A token identifying the application used for testing.
     """
-    if _is_cluster_appserver(config.cluster_hostname):
+    if is_cluster_appserver(config.cluster_hostname):
         if config.backend_id:
             args = [config.backend_id]
             stdout, _ = run_appcfg_with_auth(config, 'stop', args=args)

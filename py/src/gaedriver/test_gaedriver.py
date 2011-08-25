@@ -78,19 +78,19 @@ def get_test_config(attributes=None, del_attr=None):
 
 
 class IsClusterAppserverTest(unittest.TestCase):
-    """Tests for _is_cluster_appserver."""
+    """Tests for is_cluster_appserver."""
 
     def test_invalid_input(self):
         invalid_input = [None, 0, (), [], {}]
         for invalid in invalid_input:
             self.assertRaises(TypeError,
-                              gaedriver._is_cluster_appserver, invalid)
+                              gaedriver.is_cluster_appserver, invalid)
 
     def test_dev_appserver(self):
         inputs = ['localhost',
                   'localhost:8080']
         for cluster_hostname in inputs:
-            self.assertFalse(gaedriver._is_cluster_appserver(cluster_hostname))
+            self.assertFalse(gaedriver.is_cluster_appserver(cluster_hostname))
 
     def test_appserver(self):
         inputs = ['example.com',
@@ -98,7 +98,7 @@ class IsClusterAppserverTest(unittest.TestCase):
                   'example.appspot.com',
                   ]
         for cluster_hostname in inputs:
-            self.assertTrue(gaedriver._is_cluster_appserver(cluster_hostname))
+            self.assertTrue(gaedriver.is_cluster_appserver(cluster_hostname))
 
 
 # pylint: disable-msg=R0902,R0904,
