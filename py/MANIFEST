@@ -1,0 +1,11 @@
+README
+RELEASE_NOTES
+VERSION
+setup.py
+demo/.gaedriver
+demo/test_e2e.py
+demo/app/app.yaml
+demo/app/main.py
+src/gaedriver/__init__.py
+src/gaedriver/gaedriver.py
+src/gaedriver/test_gaedriver.py

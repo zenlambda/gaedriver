@@ -1,0 +1,6 @@
+include VERSION
+include RELEASE_NOTES
+include README
+include demo/*.py
+include demo/.gaedriver
+include demo/app/*
