@@ -25,6 +25,7 @@ import os
 import signal
 import StringIO
 import unittest
+import warnings
 
 from pyfakefs import fake_filesystem
 from pyfakefs import fake_filesystem_shutil
@@ -37,12 +38,19 @@ GAEDRIVER_TEST_FLAGS = {'app_id': 'example-id',
                         'backend_instances': 5,
                         'cluster_hostname': 'appspot.com',
                         'username': 'alice@example.com',
-                        'password': 'secret',
+                        'password': 'secret password',
+                        'oauth2_appcfg_token': 'secret-token',
                         'sdk_dir': '/path/to/sdk',
                         'app_dir': '/path/to/app',
                         }
 
 GENERIC_APPCFG_ERROR_MSG = 'Error: Something went wrong.'
+
+
+# We deprecate the usage of passwords, but still want to be able to test
+# them. Showing deprecation warnings in tests is annoying, so let's disable
+# them.
+warnings.filterwarnings('ignore', category=DeprecationWarning, append=True)
 
 
 def mock_run_appcfg_with_auth_no_error(*args, **kwargs):
@@ -744,6 +752,7 @@ class RunAppcfgWithAuthTest(unittest.TestCase):
                 s.action = action
                 s.options = options
                 s.args = args
+                s.stdin = None
                 s.stdout = stdout
                 s.stderr = stderr
                 s.returncode = retcode
@@ -764,6 +773,20 @@ class RunAppcfgWithAuthTest(unittest.TestCase):
                               config,
                               'action')
 
+    def test_missing_required_auth_args(self):
+      config = get_test_config(del_attr=['password', 'oauth2_appcfg_token'])
+      self.assertRaises(ValueError,
+                        gaedriver.run_appcfg_with_auth,
+                        config,
+                        'action')
+
+    def test_missing_username_for_password(self):
+      config = get_test_config(del_attr=['username', 'oauth2_appcfg_token'])
+      self.assertRaises(ValueError,
+                        gaedriver.run_appcfg_with_auth,
+                        config,
+                        'action')
+
     def test_parameters_passed_on(self):
         config = get_test_config()
         action = 'action'
@@ -771,11 +794,6 @@ class RunAppcfgWithAuthTest(unittest.TestCase):
         gaedriver.run_appcfg_with_auth(config, action)
         self.assertEqual(config, self.mock_thread.config)
         self.assertEqual(action, self.mock_thread.action)
-
-    def test_stdin_set(self):
-        self.mock_appcfg_thread()
-        gaedriver.run_appcfg_with_auth(get_test_config(), 'action')
-        self.assertTrue(self.mock_thread.stdin)
 
     def test_stdout_stderr(self):
         config = get_test_config()
@@ -787,15 +805,25 @@ class RunAppcfgWithAuthTest(unittest.TestCase):
         self.assertEqual(1, code)
 
     def test_default_options(self):
-        config = get_test_config()
+        config = get_test_config(del_attr=['password'])
+        self.mock_appcfg_thread()
+        gaedriver.run_appcfg_with_auth(config, 'action')
+        self.assertTrue('--email=%s' % config.username in
+                        self.mock_thread.options)
+        oauth_option = ('--oauth2_appcfg_token=%s' %
+                        GAEDRIVER_TEST_FLAGS['oauth2_appcfg_token'])
+        self.assertTrue(oauth_option in self.mock_thread.options)
+        self.assertFalse('--passin' in self.mock_thread.options)
+        self.assertFalse(self.mock_thread.stdin)
+
+    def test_passin_for_password(self):
+        config = get_test_config(del_attr=['oauth2_appcfg_token'])
         self.mock_appcfg_thread()
         gaedriver.run_appcfg_with_auth(config, 'action')
         self.assertTrue('--email=%s' % config.username in
                         self.mock_thread.options)
         self.assertTrue('--passin' in self.mock_thread.options)
-
-
-
+        self.assertTrue(self.mock_thread.stdin)
 
 
 class DevAppServerThreadTest(unittest.TestCase):

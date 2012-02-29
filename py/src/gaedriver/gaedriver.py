@@ -30,6 +30,7 @@ import signal
 import subprocess
 import threading
 import time
+import warnings
 
 # All options for Config objects (see below).
 CONFIG_OPTIONS = {
@@ -41,6 +42,7 @@ CONFIG_OPTIONS = {
     'app_dir': 'Local directory where the application is located.',
     'username': 'Username used for authentication (email address).',
     'password': 'Password used for authentication.',
+    'oauth2_appcfg_token': 'An oauth2 refresh token for appcfg.',
     'ac_hostname': 'Hostname of the admin console.',
     'appcfg_flags': 'Extra flags to pass to appcfg.',
     }
@@ -189,7 +191,7 @@ class Config(object):
     def __init__(self, app_id, cluster_hostname,
                  backend_id=None, backend_instances=None,
                  sdk_dir=None, app_dir=None,
-                 username=None, password=None,
+                 username=None, password=None, oauth2_appcfg_token=None,
                  ac_hostname=None, appcfg_flags=None):
         """Initialize configuration.
 
@@ -212,6 +214,7 @@ class Config(object):
           app_dir: Local directory where the application is located.
           username: Username used for authentication (email address).
           password: Password used for authentication.
+          oauth2_appcfg_token: An oauth2 refresh token for appcfg.
           ac_hostname: Hostname of the admin console.
           appcfg_flags: Extra flags to pass to appcfg (string).
 
@@ -266,6 +269,8 @@ class Config(object):
         self.app_dir = app_dir if app_dir else ''
         self.username = username if username else ''
         self.password = password if password else ''
+        token = oauth2_appcfg_token
+        self.oauth2_appcfg_token = token if token else ''
         self.appcfg_flags = appcfg_flags if appcfg_flags else ''
 
 
@@ -488,17 +493,34 @@ def run_appcfg_with_auth(config, action, options=None, args=None):
     Raises:
       ValueError: If one of the configuration attributes is not set.
     """
-    required_attributes = ['app_dir', 'sdk_dir', 'username', 'password']
+    required_attributes = ['app_dir', 'sdk_dir']
     _check_required_config_attr(config, required_attributes)
+    if (not getattr(config, 'password') and
+        not getattr(config, 'oauth2_appcfg_token')):
+        msg = 'Neither "password" nor "oauth2_appcfg_token" are set.'
+        raise ValueError(msg)
+    if getattr(config, 'password') and not getattr(config, 'username'):
+        msg = ('You have to provide "username" *and* "password", only a '
+               'password is not enough.')
+        raise ValueError(msg)
+    if config.password:
+        msg = ('appcfg supports OAuth2 starting with 1.6.2. You should use '
+               '"oauth2_appcfg_token" instead of "password".')
+        warnings.warn(msg, DeprecationWarning)
     if options:
         options = list(options)
     else:
         options = []
     options.extend(AppcfgThread.DEFAULT_OPTIONS)
-    options.append('--email=' + config.username)
-    options.append('--passin')
+    if config.username:
+      options.append('--email=' + config.username)
+    if config.oauth2_appcfg_token:
+      options.append('--oauth2_appcfg_token=' + config.oauth2_appcfg_token)
+    elif config.password:
+      options.append('--passin')
     thread = AppcfgThread(config, action, options, args)
-    thread.stdin = config.password
+    if config.password and not config.oauth2_appcfg_token:
+      thread.stdin = config.password
     thread.start()
     thread.join()
     return (thread.stdout, thread.stderr, thread.returncode)
