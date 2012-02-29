@@ -115,6 +115,66 @@ class IsClusterAppserverTest(unittest.TestCase):
             self.assertTrue(gaedriver.is_cluster_appserver(cluster_hostname))
 
 
+class GetEnvVarsTest(unittest.TestCase):
+    """Tests for _get_env_vars()."""
+
+    def setUp(self):
+        self.orig_environ = os.environ
+        os.environ = dict(os.environ)
+
+    def tearDown(self):
+        os.environ = self.orig_environ
+
+    def testNoCustomEnvVars(self):
+        env_vars = gaedriver._get_env_vars()
+        self.assertEqual(len(self.orig_environ), len(env_vars))
+        for k in self.orig_environ.keys():
+            self.assertEqual(self.orig_environ[k], env_vars[k])
+
+    def testWithCustomNonGaedriverEnvVars(self):
+        # Environment variables not prefixed with the gaedriver prefix should
+        # be copied.
+        non_gaedriver_key = 'foo-key'
+        os.environ[non_gaedriver_key] = 'foo-value'
+        env_vars = gaedriver._get_env_vars()
+        self.assertEqual(len(os.environ), len(env_vars))
+        for k in os.environ:
+            self.assertEqual(os.environ[k], env_vars[k])
+
+    def testWithCustomNonExistingGaedriverEnvVars(self):
+        # Environment variables prefixed with the gaedriver prefix that do not
+        # already exist should be created.
+        gaedriver_key_suffix = 'NON_EXISTING_VAR'
+        gaedriver_key = 'GAEDRIVER_' + gaedriver_key_suffix
+        os.environ[gaedriver_key] = 'gaedriver_value'
+        env_vars = gaedriver._get_env_vars()
+        self.assertEqual(len(os.environ), len(env_vars))
+        for k in os.environ:
+            if k != gaedriver_key:
+                self.assertEqual(os.environ[k], env_vars[k])
+            else:
+                self.assertEqual(os.environ[k], env_vars[gaedriver_key_suffix])
+
+    def testWithCustomExistingGaedriverEnvVars(self):
+        # Environment variables prefixed with the gaedriver prefix that do not
+        # already exist should be overwritten.
+        gaedriver_key_suffix = 'PYTHONPATH'
+        gaedriver_key = 'GAEDRIVER_' + gaedriver_key_suffix
+        gaedriver_value = 'gaedriver_value'
+        os.environ[gaedriver_key] = gaedriver_value
+        env_vars = gaedriver._get_env_vars()
+        self.assertEqual(len(os.environ) - 1, len(env_vars))
+        for k in os.environ:
+            if k == gaedriver_key:
+                continue
+            elif k != gaedriver_key_suffix:
+                self.assertEqual(os.environ[k], env_vars[k], k)
+            else:
+                self.assertEqual(gaedriver_value,
+                                 env_vars[gaedriver_key_suffix])
+
+
+
 # pylint: disable-msg=R0902,R0904,
 class ConfigTest(unittest.TestCase):
     """Tests for the Config class."""
@@ -403,108 +463,17 @@ class BackendsYamlFileModificationTest(unittest.TestCase):
                          self.fake_file_mod(self.orig_yaml_path).read())
 
 
-class RunAppcfgWithAuthTest(unittest.TestCase):
-    """Tests for RunAppcfgWithAuth."""
-
-    def test_missing_config_parameter(self):
-        # Test behavior for missing configuration parameter.
-        for missing_param in ['app_dir', 'sdk_dir', 'username', 'password']:
-            config = get_test_config({missing_param: ''})
-            self.assertRaises(ValueError, gaedriver.update_app, config)
-
-
-class UpdateAppTest(unittest.TestCase):
-    """Tests for RunAppcfgWithAuth."""
-
-    def setUp(self):
-        self.orig_run_appcfg_with_auth = gaedriver.run_appcfg_with_auth
-        self.counter = 0
-
-    def tearDown(self):
-        gaedriver.run_appcfg_with_auth = self.orig_run_appcfg_with_auth
-
-    def test_missing_config_parameter(self):
-        # test behavior for missing configuration parameter.
-        gaedriver.run_appcfg_with_auth = lambda c, o, a, args: ('', '')
-        for missing_param in ['app_dir', 'username']:
-            config = get_test_config({missing_param: ''})
-            self.assertRaises(ValueError, gaedriver.update_app, config)
-
-    def test_update_just_works(self):
-
-        # it's okay to not use all arguments, here - pylint: disable-msg=W0613
-        def mock_run_appcfg_with_auth(config, action, options=None, args=None):
-            self.counter += 1
-            return ('', '', 0)
-
-        gaedriver.run_appcfg_with_auth = mock_run_appcfg_with_auth
-        config = get_test_config()
-        gaedriver.update_app(config)
-        self.assertEqual(1, self.counter)
-
-    def test_runs_rollback(self):
-        user_email = 'alice@example.com'
-        user_name = 'alice'
-        err_msg = gaedriver.ROLLBACK_ERR_MESSAGE % user_name
-        stderr = 'some prefix %s some suffix' % err_msg
-
-        # it's okay to not use all arguments, here - pylint: disable-msg=W0613
-        def mock_run_appcfg_with_auth(config, action, options=None, b=False,
-                                      args=None):
-            if action == 'update':
-                self.counter += 1
-                return ('', stderr, 1)
-            elif action == 'rollback':
-                return ('done', '', 0)
-
-        gaedriver.run_appcfg_with_auth = mock_run_appcfg_with_auth
-        config = get_test_config({'username': user_email})
-        gaedriver.update_app(config)
-        self.assertEqual(gaedriver.MAX_ROLLBACK_RETRIES, self.counter)
-
-    def test_raises_error_if_rollback_fails(self):
-        user_email = 'alice@example.com'
-        user_name = 'alice'
-        err_msg = gaedriver.ROLLBACK_ERR_MESSAGE % user_name
-        stderr = 'some prefix %s some suffix' % err_msg
-
-        # it's okay to not use all arguments, here - pylint: disable-msg=W0613
-        def mock_run_appcfg_with_auth(c, action, config=None, b=False,
-                                      args=None):
-            if action == 'update':
-                return ('', stderr, 1)
-            elif action == 'rollback':
-                return ('', GENERIC_APPCFG_ERROR_MSG, 1)
-
-        gaedriver.run_appcfg_with_auth = mock_run_appcfg_with_auth
-        config = get_test_config({'username': user_email})
-        self.assertRaises(gaedriver.AppcfgError,
-                          gaedriver.update_app, config)
-
-    def test_raises_error_if_update_fails_due_to_something_else(self):
-        user_email = 'alice@example.com'
-
-        # it's okay to not use all arguments, here - pylint: disable-msg=W0613
-        def mock_run_appcfg_with_auth(c, a, options=None, b=False, args=None):
-            self.counter += 1
-            return ('', GENERIC_APPCFG_ERROR_MSG, 1)
-
-        gaedriver.run_appcfg_with_auth = mock_run_appcfg_with_auth
-        config = get_test_config({'username': user_email})
-        self.assertRaises(gaedriver.AppcfgError, gaedriver.update_app,
-                          config)
-        self.assertEqual(1, self.counter)
-
-
 class ClientThreadBaseTest(unittest.TestCase):
 
   def setUp(self):
       self.orig_popen = gaedriver.subprocess.Popen
       self.orig_kill = gaedriver.os.kill
+      self.orig_get_env_vars = gaedriver._get_env_vars
 
   def tearDown(self):
       gaedriver.subprocess.Popen = self.orig_popen
       gaedriver.os.kill = self.orig_kill
+      gaedriver._get_env_vars = self.orig_get_env_vars
 
   def get_mock_popen(self, pid, stdout=None, stderr=None):
       if stdout == None:
@@ -513,6 +482,11 @@ class ClientThreadBaseTest(unittest.TestCase):
           stderr = ''
 
       def Mock(*args, **kwargs):
+          # Remember the 'env' parameter if it was passed.
+          if 'env' in kwargs:
+              self.popen_env = kwargs['env']
+          else:
+              self.popen_env = None
           return MockPopen(pid, stdout, stderr)
 
       return Mock
@@ -522,7 +496,7 @@ class ClientThreadBaseTest(unittest.TestCase):
       thread_base._get_argv = lambda : []
       return thread_base
 
-  def test_run(self):
+  def test_pid(self):
       thread_base = self.GetThreadObject()
       thread_base.pid_ = 42
       self.assertEqual(42, thread_base.pid)
@@ -536,6 +510,22 @@ class ClientThreadBaseTest(unittest.TestCase):
       thread_base = self.GetThreadObject()
       thread_base.stderr_ = 'hello world'
       self.assertEqual('hello world', thread_base.stderr)
+
+  def test_run_env(self):
+      self.called = False
+      self.mock_env_vars = {'a': 'dict'}
+
+      def MockGetEnvVars():
+          self.called = True
+          return self.mock_env_vars
+
+      gaedriver._get_env_vars = MockGetEnvVars
+      thread_base = self.GetThreadObject()
+      gaedriver.subprocess.Popen = self.get_mock_popen(0)
+      thread_base.start()
+      thread_base.join()
+      self.assertTrue(self.called)
+      self.assertEqual(self.mock_env_vars, self.popen_env)
 
   def test_run_pid(self):
       thread_base = self.GetThreadObject()
@@ -648,6 +638,89 @@ class AppcfgThreadTest(unittest.TestCase):
         self.assertTrue(argv.index('backends') < argv.index(action))
         self.assertTrue(argv.index(action) < argv.index(args[0]))
         self.assertTrue(argv.index(action) < argv.index(args[1]))
+
+
+class UpdateAppTest(unittest.TestCase):
+    """Tests for RunAppcfgWithAuth."""
+
+    def setUp(self):
+        self.orig_run_appcfg_with_auth = gaedriver.run_appcfg_with_auth
+        self.counter = 0
+
+    def tearDown(self):
+        gaedriver.run_appcfg_with_auth = self.orig_run_appcfg_with_auth
+
+    def test_missing_config_parameter(self):
+        # test behavior for missing configuration parameter.
+        gaedriver.run_appcfg_with_auth = lambda c, o, a, args: ('', '')
+        for missing_param in ['app_dir', 'username']:
+            config = get_test_config({missing_param: ''})
+            self.assertRaises(ValueError, gaedriver.update_app, config)
+
+    def test_update_just_works(self):
+
+        # it's okay to not use all arguments, here - pylint: disable-msg=W0613
+        def mock_run_appcfg_with_auth(config, action, options=None, args=None):
+            self.counter += 1
+            return ('', '', 0)
+
+        gaedriver.run_appcfg_with_auth = mock_run_appcfg_with_auth
+        config = get_test_config()
+        gaedriver.update_app(config)
+        self.assertEqual(1, self.counter)
+
+    def test_runs_rollback(self):
+        user_email = 'alice@example.com'
+        user_name = 'alice'
+        err_msg = gaedriver.ROLLBACK_ERR_MESSAGE % user_name
+        stderr = 'some prefix %s some suffix' % err_msg
+
+        # it's okay to not use all arguments, here - pylint: disable-msg=W0613
+        def mock_run_appcfg_with_auth(config, action, options=None, b=False,
+                                      args=None):
+            if action == 'update':
+                self.counter += 1
+                return ('', stderr, 1)
+            elif action == 'rollback':
+                return ('done', '', 0)
+
+        gaedriver.run_appcfg_with_auth = mock_run_appcfg_with_auth
+        config = get_test_config({'username': user_email})
+        gaedriver.update_app(config)
+        self.assertEqual(gaedriver.MAX_ROLLBACK_RETRIES, self.counter)
+
+    def test_raises_error_if_rollback_fails(self):
+        user_email = 'alice@example.com'
+        user_name = 'alice'
+        err_msg = gaedriver.ROLLBACK_ERR_MESSAGE % user_name
+        stderr = 'some prefix %s some suffix' % err_msg
+
+        # it's okay to not use all arguments, here - pylint: disable-msg=W0613
+        def mock_run_appcfg_with_auth(c, action, config=None, b=False,
+                                      args=None):
+            if action == 'update':
+                return ('', stderr, 1)
+            elif action == 'rollback':
+                return ('', GENERIC_APPCFG_ERROR_MSG, 1)
+
+        gaedriver.run_appcfg_with_auth = mock_run_appcfg_with_auth
+        config = get_test_config({'username': user_email})
+        self.assertRaises(gaedriver.AppcfgError,
+                          gaedriver.update_app, config)
+
+    def test_raises_error_if_update_fails_due_to_something_else(self):
+        user_email = 'alice@example.com'
+
+        # it's okay to not use all arguments, here - pylint: disable-msg=W0613
+        def mock_run_appcfg_with_auth(c, a, options=None, b=False, args=None):
+            self.counter += 1
+            return ('', GENERIC_APPCFG_ERROR_MSG, 1)
+
+        gaedriver.run_appcfg_with_auth = mock_run_appcfg_with_auth
+        config = get_test_config({'username': user_email})
+        self.assertRaises(gaedriver.AppcfgError, gaedriver.update_app,
+                          config)
+        self.assertEqual(1, self.counter)
 
 
 class RunAppcfgWithAuthTest(unittest.TestCase):

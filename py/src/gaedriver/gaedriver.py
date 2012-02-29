@@ -81,6 +81,14 @@ APP_DEPLOY_WAIT = 2
 
 DEFAULT_BACKEND_INSTANCES = 2
 
+# Users can set and/or overwrite environment variables for SDK tools started
+# with gaedriver. To set a custom value, prefix the environment variable with
+# the value of CUSTOM_ENV_VAR_PREFIX.
+#
+# For example, to overwrite PYTHONPATH, set the environment variable
+# 'GAEDRIVER_PYTHONPATH'.
+CUSTOM_ENV_VAR_PREFIX = 'GAEDRIVER_'
+
 
 class Error(Exception):
     """Base error type."""
@@ -110,6 +118,21 @@ def _check_required_config_attr(config, required_attributes):
     for attr in required_attributes:
         if not getattr(config, attr):
             raise ValueError('"config.%s" has to be set.' % attr)
+
+
+def _get_env_vars():
+    """Get a dictionary of environment variables to use for SDK tools.
+
+    This function will remove any existing environment variables prefixed with
+    CUSTOM_ENV_VAR_PREFIX and add the equivivalent without the prefix.
+    """
+    env_vars = {}
+    for k, v in os.environ.items():
+        if k.startswith(CUSTOM_ENV_VAR_PREFIX):
+            env_vars[k[len(CUSTOM_ENV_VAR_PREFIX):]] = v
+        else:
+            env_vars[k] = v
+    return env_vars
 
 
 def is_cluster_appserver(cluster_hostname):
@@ -378,7 +401,8 @@ class ClientThreadBase_(threading.Thread):
         popen = subprocess.Popen(argv,
                                  stdin=subprocess.PIPE,
                                  stdout=subprocess.PIPE,
-                                 stderr=subprocess.PIPE)
+                                 stderr=subprocess.PIPE,
+                                 env=_get_env_vars())
         self.pid_ = popen.pid
         (self.stdout_, self.stderr_) = popen.communicate(self.stdin)
         self.returncode_ = popen.returncode
@@ -709,8 +733,7 @@ def setup_app(config):
         assert retcode == 0, stderr
         if config.backend_id:
             args = [config.backend_id]
-            stdout, stderr, _ = run_appcfg_with_auth(config, 'start',
-                                                     args=args)
+            _, stderr, _ = run_appcfg_with_auth(config, 'start', args=args)
             if not 'is already started' in stderr:
                 # stderr is not a list - pylint: disable-msg=E1103
                 assert 'error' not in stderr.lower(), stderr
@@ -737,8 +760,8 @@ def teardown_app(config, app_token):
             if not 'is already stopped' in stderr:
                 # stdout is not a list - pylint: disable-msg=E1103
                 assert 'error' not in stderr.lower(), stderr
-            stdout, stderr, retcode = run_appcfg_with_auth(config, 'delete',
-                                                           args=args)
+            _, stderr, retcode = run_appcfg_with_auth(config, 'delete',
+                                                      args=args)
             # stdout is not a list - pylint: disable-msg=E1103
             assert retcode == 0, stderr
             _restore_backends_yaml(config)
