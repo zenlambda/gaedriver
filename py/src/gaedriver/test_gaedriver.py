@@ -23,6 +23,7 @@ __author__ = 'schuppe@google.com (Robert Schuppenies)'
 
 import os
 import signal
+import StringIO
 import unittest
 
 from pyfakefs import fake_filesystem
@@ -45,11 +46,24 @@ GENERIC_APPCFG_ERROR_MSG = 'Error: Something went wrong.'
 
 
 def mock_run_appcfg_with_auth_no_error(*args, **kwargs):
-    return ('Everything is fine.', 'stderr')
+    return ('Everything is fine.', '', 0)
 
 
 def mock_run_appcfg_with_auth_with_error(*args, **kwargs):
-    return (GENERIC_APPCFG_ERROR_MSG, 'stderr')
+    return ('stdout', GENERIC_APPCFG_ERROR_MSG, 1)
+
+
+class MockPopen(object):
+  """A mock Popen object."""
+
+  def __init__(self, pid, stdout, stderr):
+    self.pid = pid
+    self.stdout = StringIO.StringIO(stdout)
+    self.stderr = StringIO.StringIO(stderr)
+    self.returncode = 1
+
+  def communicate(self, stdin):
+    return (self.stdout.read(), self.stderr.read())
 
 
 def get_test_config(attributes=None, del_attr=None):
@@ -421,7 +435,7 @@ class UpdateAppTest(unittest.TestCase):
         # it's okay to not use all arguments, here - pylint: disable-msg=W0613
         def mock_run_appcfg_with_auth(config, action, options=None, args=None):
             self.counter += 1
-            return ('', '')
+            return ('', '', 0)
 
         gaedriver.run_appcfg_with_auth = mock_run_appcfg_with_auth
         config = get_test_config()
@@ -432,16 +446,16 @@ class UpdateAppTest(unittest.TestCase):
         user_email = 'alice@example.com'
         user_name = 'alice'
         err_msg = gaedriver.ROLLBACK_ERR_MESSAGE % user_name
-        stdout = 'some prefix %s some suffix' % err_msg
+        stderr = 'some prefix %s some suffix' % err_msg
 
         # it's okay to not use all arguments, here - pylint: disable-msg=W0613
         def mock_run_appcfg_with_auth(config, action, options=None, b=False,
-                                                            args=None):
+                                      args=None):
             if action == 'update':
                 self.counter += 1
-                return (stdout, '')
+                return ('', stderr, 1)
             elif action == 'rollback':
-                return ('done', '')
+                return ('done', '', 0)
 
         gaedriver.run_appcfg_with_auth = mock_run_appcfg_with_auth
         config = get_test_config({'username': user_email})
@@ -452,15 +466,15 @@ class UpdateAppTest(unittest.TestCase):
         user_email = 'alice@example.com'
         user_name = 'alice'
         err_msg = gaedriver.ROLLBACK_ERR_MESSAGE % user_name
-        stdout = 'some prefix %s some suffix' % err_msg
+        stderr = 'some prefix %s some suffix' % err_msg
 
         # it's okay to not use all arguments, here - pylint: disable-msg=W0613
         def mock_run_appcfg_with_auth(c, action, config=None, b=False,
                                       args=None):
             if action == 'update':
-                return (stdout, '')
+                return ('', stderr, 1)
             elif action == 'rollback':
-                return (GENERIC_APPCFG_ERROR_MSG, '')
+                return ('', GENERIC_APPCFG_ERROR_MSG, 1)
 
         gaedriver.run_appcfg_with_auth = mock_run_appcfg_with_auth
         config = get_test_config({'username': user_email})
@@ -473,13 +487,242 @@ class UpdateAppTest(unittest.TestCase):
         # it's okay to not use all arguments, here - pylint: disable-msg=W0613
         def mock_run_appcfg_with_auth(c, a, options=None, b=False, args=None):
             self.counter += 1
-            return (GENERIC_APPCFG_ERROR_MSG, '')
+            return ('', GENERIC_APPCFG_ERROR_MSG, 1)
 
         gaedriver.run_appcfg_with_auth = mock_run_appcfg_with_auth
         config = get_test_config({'username': user_email})
         self.assertRaises(gaedriver.AppcfgError, gaedriver.update_app,
                           config)
         self.assertEqual(1, self.counter)
+
+
+class ClientThreadBaseTest(unittest.TestCase):
+
+  def setUp(self):
+      self.orig_popen = gaedriver.subprocess.Popen
+      self.orig_kill = gaedriver.os.kill
+
+  def tearDown(self):
+      gaedriver.subprocess.Popen = self.orig_popen
+      gaedriver.os.kill = self.orig_kill
+
+  def get_mock_popen(self, pid, stdout=None, stderr=None):
+      if stdout == None:
+        stdout = ''
+        if stderr == None:
+          stderr = ''
+
+      def Mock(*args, **kwargs):
+          return MockPopen(pid, stdout, stderr)
+
+      return Mock
+
+  def GetThreadObject(self):
+      thread_base = gaedriver.ClientThreadBase_(get_test_config())
+      thread_base._get_argv = lambda : []
+      return thread_base
+
+  def test_run(self):
+      thread_base = self.GetThreadObject()
+      thread_base.pid_ = 42
+      self.assertEqual(42, thread_base.pid)
+
+  def test_stdout(self):
+      thread_base = self.GetThreadObject()
+      thread_base.stdout_ = 'hello world'
+      self.assertEqual('hello world', thread_base.stdout)
+
+  def test_stderr(self):
+      thread_base = self.GetThreadObject()
+      thread_base.stderr_ = 'hello world'
+      self.assertEqual('hello world', thread_base.stderr)
+
+  def test_run_pid(self):
+      thread_base = self.GetThreadObject()
+      pid = 42
+      gaedriver.subprocess.Popen = self.get_mock_popen(pid)
+      thread_base.start()
+      thread_base.join()
+      self.assertEqual(pid, thread_base.pid)
+
+  def test_run_returncode(self):
+      thread_base = self.GetThreadObject()
+      pid = 42
+      gaedriver.subprocess.Popen = self.get_mock_popen(pid)
+      thread_base.start()
+      thread_base.join()
+      self.assertNotEqual(None, thread_base.returncode)
+
+  def test_run_stdout(self):
+      thread_base = self.GetThreadObject()
+      stdout = 'a\nmulti-line\nstring'
+      gaedriver.subprocess.Popen = self.get_mock_popen(42, stdout)
+      thread_base.start()
+      thread_base.join()
+      self.assertEqual(stdout, thread_base.stdout)
+
+  def test_run_stderr(self):
+      thread_base = self.GetThreadObject()
+      stderr = 'a\nmulti-line\nstring'
+      gaedriver.subprocess.Popen = self.get_mock_popen(42, '', stderr)
+      thread_base.start()
+      thread_base.join()
+      self.assertEqual(stderr, thread_base.stderr)
+
+  def test_stop(self):
+      thread_base = self.GetThreadObject()
+
+      self.kill_invoked = False
+      self.kill_signal = None
+
+      def mock_kill(_, sig):
+        self.kill_invoked = True
+        self.kill_signal = sig
+
+      gaedriver.os.kill = mock_kill
+       # No thread started, so nothing to kill.
+      thread_base.stop()
+      self.assertFalse(self.kill_invoked)
+      # Let's test with a running thread.
+      thread_base.pid_ = 42
+      self.kill_invoked = False
+      thread_base.stop()
+      self.assertTrue(self.kill_invoked)
+      self.assertEqual(signal.SIGKILL, self.kill_signal)
+
+
+class AppcfgThreadTest(unittest.TestCase):
+
+    def setUp(self):
+        pass
+
+    def test_init_defaults(self):
+        config = get_test_config()
+        action = 'action'
+        thread = gaedriver.AppcfgThread(config, action)
+        self.assertEqual(config, thread.config_)
+        self.assertEqual(action, thread.action_)
+        self.assertEqual(gaedriver.AppcfgThread.DEFAULT_OPTIONS,
+                         thread.options_)
+        self.assertEqual([], thread.args_)
+
+    def test_init_with_options(self):
+        options = ['a', 'b']
+        thread = gaedriver.AppcfgThread(get_test_config(), 'action',
+                                        options=options)
+        self.assertEqual(options, thread.options_)
+
+    def test_init_with_args(self):
+        args = ['a', 'b']
+        thread = gaedriver.AppcfgThread(get_test_config(), 'action', args=args)
+        self.assertEqual(args, thread.args_)
+
+    def test_get_argv(self):
+        config = get_test_config()
+        appcfg_flags = ['a', 'list', 'of', 'flags']
+        config.appcfg_flags = ' '.join(appcfg_flags)
+        action = 'action'
+        thread = gaedriver.AppcfgThread(config, action)
+        argv = thread._get_argv()
+        self.assertTrue('--application=%s' % config.app_id in argv)
+        self.assertTrue('--server=%s' % config.ac_hostname in argv)
+        for flag in appcfg_flags:
+            self.assertTrue(flag in argv)
+
+    def test_get_argv_frontend(self):
+        config = get_test_config(del_attr=['backend_id', 'backend_instances'])
+        action = 'action'
+        args = ['some', 'args']
+        thread = gaedriver.AppcfgThread(config, action, args=args)
+        argv = thread._get_argv()
+        self.assertTrue(argv.index(action) < argv.index(args[0]))
+        self.assertTrue(argv.index(action) < argv.index(args[1]))
+
+    def test_get_argv_backend(self):
+        config = get_test_config()
+        action = 'action'
+        args = ['some', 'args']
+        thread = gaedriver.AppcfgThread(config, action, args=args)
+        argv = thread._get_argv()
+        self.assertTrue(argv.index('backends') < argv.index(config.app_dir))
+        self.assertTrue(argv.index('backends') < argv.index(action))
+        self.assertTrue(argv.index(action) < argv.index(args[0]))
+        self.assertTrue(argv.index(action) < argv.index(args[1]))
+
+
+class RunAppcfgWithAuthTest(unittest.TestCase):
+
+    def setUp(self):
+        self.orig_appcfg_thread = gaedriver.AppcfgThread
+        self.mock_thread = None
+
+    def tearDown(self):
+        gaedriver.AppcfgThread = self.orig_appcfg_thread
+
+    def mock_appcfg_thread(self, stdout='', stderr='', retcode=0):
+
+        class MockAppcfgThread(object):
+
+            DEFAULT_OPTIONS = gaedriver.AppcfgThread.DEFAULT_OPTIONS
+
+            def __init__(s, config, action, options, args):
+                self.mock_thread = s
+                s.config = config
+                s.action = action
+                s.options = options
+                s.args = args
+                s.stdout = stdout
+                s.stderr = stderr
+                s.returncode = retcode
+
+            def start(s):
+                pass
+
+            def join(s):
+                pass
+
+        gaedriver.AppcfgThread = MockAppcfgThread
+
+    def test_missing_required_args(self):
+        for attr in ['app_dir']:
+            config = get_test_config(del_attr=[attr])
+            self.assertRaises(ValueError,
+                              gaedriver.run_appcfg_with_auth,
+                              config,
+                              'action')
+
+    def test_parameters_passed_on(self):
+        config = get_test_config()
+        action = 'action'
+        self.mock_appcfg_thread()
+        gaedriver.run_appcfg_with_auth(config, action)
+        self.assertEqual(config, self.mock_thread.config)
+        self.assertEqual(action, self.mock_thread.action)
+
+    def test_stdin_set(self):
+        self.mock_appcfg_thread()
+        gaedriver.run_appcfg_with_auth(get_test_config(), 'action')
+        self.assertTrue(self.mock_thread.stdin)
+
+    def test_stdout_stderr(self):
+        config = get_test_config()
+        action = 'action'
+        self.mock_appcfg_thread(stdout='stdout', stderr='stderr', retcode=1)
+        stdout, stderr, code = gaedriver.run_appcfg_with_auth(config, action)
+        self.assertEqual('stdout', stdout)
+        self.assertEqual('stderr', stderr)
+        self.assertEqual(1, code)
+
+    def test_default_options(self):
+        config = get_test_config()
+        self.mock_appcfg_thread()
+        gaedriver.run_appcfg_with_auth(config, 'action')
+        self.assertTrue('--email=%s' % config.username in
+                        self.mock_thread.options)
+        self.assertTrue('--passin' in self.mock_thread.options)
+
+
+
 
 
 class DevAppServerThreadTest(unittest.TestCase):
@@ -656,13 +899,10 @@ class DevAppServerThreadTest(unittest.TestCase):
         config = get_test_config()
         dev_thread = gaedriver.DevAppServerThread(config)
 
-        self.kill_invoked = False
-        self.kill_signal = None
         self.restore_app_yaml_called = False
 
         def mock_kill(_, sig):
-            self.kill_invoked = True
-            self.kill_signal = sig
+            pass
 
         def mock_restore_app_yaml():
             self.restore_app_yaml_called = True
@@ -671,15 +911,11 @@ class DevAppServerThreadTest(unittest.TestCase):
         dev_thread._restore_app_yaml = mock_restore_app_yaml
         # No thread started, so nothing to kill.
         dev_thread.stop()
-        self.assertFalse(self.kill_invoked)
         self.assertTrue(self.restore_app_yaml_called)
         # Let's test with a running thread.
-        dev_thread.pid = 65000
-        self.kill_invoked = False
+        dev_thread.pid_ = 65000
         self.restore_app_yaml_called = False
         dev_thread.stop()
-        self.assertTrue(self.kill_invoked)
-        self.assertEqual(signal.SIGKILL, self.kill_signal)
         self.assertTrue(self.restore_app_yaml_called)
 
 
@@ -712,7 +948,7 @@ class SetUpAppTest(unittest.TestCase):
 
     @staticmethod
     def mock_update_app(_):
-        return ('Everything is fine.', 'stderr')
+        return ('Everything is fine.', 'stderr', 0)
 
     @staticmethod
     def mock_create_backends_yaml(_):
@@ -721,7 +957,7 @@ class SetUpAppTest(unittest.TestCase):
     @staticmethod
     def mock_run_appcfg_started(*args, **kwargs):
         """Mock RunAppcfgWithAuth() which says a backend is already started."""
-        return ('error: backend is already started.', 'stderr')
+        return ('error: backend is already started.', 'stderr', 1)
 
     def test_dev_appserver(self):
         config = get_test_config()
@@ -742,7 +978,7 @@ class SetUpAppTest(unittest.TestCase):
 
         # redefining method is okay - pylint: disable-msg=E0102
         def mock_update_app(_):
-            return ('Error in stdout', 'stderr')
+            return ('stdout', 'Error in stderr', 1)
 
         gaedriver.update_app = mock_update_app
         config.cluster_hostname = 'example.com'
@@ -761,7 +997,7 @@ class SetUpAppTest(unittest.TestCase):
         self.assertEqual(None, gaedriver.setup_app(config))
 
         def mock3_run_appcfg_with_auth(*args, **kwargs):
-            return (GENERIC_APPCFG_ERROR_MSG, 'stderr')
+            return ('stdout', GENERIC_APPCFG_ERROR_MSG, 1)
 
         gaedriver.run_appcfg_with_auth = mock3_run_appcfg_with_auth
         self.assertRaises(AssertionError, gaedriver.setup_app, config)
@@ -787,9 +1023,9 @@ class TearDownAppTest(unittest.TestCase):
     def mock_run_appcfg_stopped(_, action, **kwargs):
         """Mock RunAppcfgWithAuth() which says a backend is already stopped."""
         if action == 'stop':
-            return ('error: Backend is already stopped.', 'stderr')
+            return ('stdout', 'error: Backend is already stopped.', 1)
         else:
-            return ('Everything is fine.', 'stderr')
+            return ('Everything is fine.', 'stderr', 0)
 
     def test_dev_appserver(self):
 

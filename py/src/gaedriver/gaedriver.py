@@ -308,13 +308,149 @@ def load_config_from_file(file_path, index=0, _open_fct=open):
     return Config(*args, **kwargs)
 
 
-def run_appcfg_with_auth(config, action, options=None, args=None):
-    """Run an appcfg command with the given options, action, and arguments.
+class ClientThreadBase_(threading.Thread):
+    """Base class for SDK client threads.
 
-    If 'config' has a non-empty 'backend_id' attribute, "appcfg backend"
-    will be used instead of "appcfg".
+    Subclasses have to implement _get_argv().
+
+    Be aware that this is just a wrapper around subprocess.communicate().
+    Values for stdout and stderr will not be available until the client has
+    finished.
+    """
+
+    def __init__(self, config, options=None):
+        """Initialize.
+
+        Args:
+          config: A Config instance.
+          options: A list of options to be used.
+        """
+        threading.Thread.__init__(self)
+        self.config_ = config
+        if options:
+            self.options_ = list(options)
+        else:
+            self.options_ = []
+        self.pid_ = None
+        self.returncode_ = None
+        self.stdout_ = None
+        self.stderr_ = None
+        # Note that 'stdin' is a plain old attribute, not a read-only property
+        # like stdout.
+        self.stdin = None
+
+    @property
+    def pid(self):
+        """PID of the running client."""
+        return self.pid_
+
+    @property
+    def returncode(self):
+        """Return code of the running client."""
+        return self.returncode_
+
+    @property
+    def stdout(self):
+        """stdout of the client.
+
+        This will return None until the client has finished.
+        """
+        return self.stdout_
+
+    @property
+    def stderr(self):
+        """stderr of the client.
+
+        This will return None until the client has finished.
+        """
+        return self.stderr_
+
+    def _get_argv(self):
+        """Get the argument vector used to start a client.
+
+        Returns:
+          A list of arguments to be called as a subprocess.
+        """
+        raise NotImplementedError
+
+    def run(self):
+        argv = self._get_argv()
+        popen = subprocess.Popen(argv,
+                                 stdin=subprocess.PIPE,
+                                 stdout=subprocess.PIPE,
+                                 stderr=subprocess.PIPE)
+        self.pid_ = popen.pid
+        (self.stdout_, self.stderr_) = popen.communicate(self.stdin)
+        self.returncode_ = popen.returncode
+
+    def stop(self):
+        if self.pid_:
+            os.kill(self.pid, signal.SIGKILL)
+
+
+class AppcfgThread(ClientThreadBase_):
+    """Class to run appcfg in a thread.
 
     By default, app ID and server are set as given in config.
+    """
+
+    DEFAULT_OPTIONS = ['--no_cookies',
+                       '--skip_sdk_update_check']
+
+    def __init__(self, config, action, options=None, args=None):
+        """Create an appcfg client thread.
+
+        If 'config' has a non-empty 'backend_id' attribute, "appcfg backend"
+        will be used instead of "appcfg".
+
+        Args:
+          config: A Config instance.
+          action: The action to be performed.
+          options: A list of options to be used.
+          args: A list of arguments passed to appcfg, e.g., a directory
+                location.
+        """
+        super(AppcfgThread, self).__init__(config, options)
+        self.action_ = action
+        if options is None:
+            self.options_ = self.DEFAULT_OPTIONS
+        if args:
+            self.args_ = list(args)
+        else:
+            self.args_ = []
+
+    def _get_argv(self):
+        argv = [os.path.join(self.config_.sdk_dir, 'appcfg.py')]
+        if self.config_.app_id:
+            argv.append('--application=%s' % self.config_.app_id)
+        if self.config_.appcfg_flags:
+            for flag in self.config_.appcfg_flags.split(' '):
+                argv.append(flag)
+        if self.config_.ac_hostname:
+            argv.append('--server=' + self.config_.ac_hostname)
+        if self.options_:
+            argv.extend(self.options_)
+        if not self.config_.backend_id:
+            # For appcfg calls to frontends the action is followed by the
+            # arguments.
+            argv.append(self.action_)
+            if self.args_:
+                argv.extend(self.args_)
+        else:
+            # For appcfg calls to backends the action is following the
+            # arguments.
+            argv.append('backends')
+            argv.append(self.config_.app_dir)
+            if self.config_.app_dir in self.args_:
+                self.args_.remove(self.config_.app_dir)
+            argv.append(self.action_)
+            if self.args_:
+                argv.extend(self.args_)
+        return argv
+
+
+def run_appcfg_with_auth(config, action, options=None, args=None):
+    """Synchronized execution of an AppcfgThread instance.
 
     Args:
       config: A Config instance.
@@ -323,52 +459,29 @@ def run_appcfg_with_auth(config, action, options=None, args=None):
       args: A list of arguments passed to appcfg, e.g., a directory location.
 
     Returns:
-      An (stdout, stderr) tuple.
+      A (stdout, stderr, retcode) tuple as returned by appcfg.
 
     Raises:
       ValueError: If one of the configuration attributes is not set.
     """
     required_attributes = ['app_dir', 'sdk_dir', 'username', 'password']
     _check_required_config_attr(config, required_attributes)
-    argv = [os.path.join(config.sdk_dir, 'appcfg.py')]
-    argv.append('--no_cookies')
-    argv.append('--email=' + config.username)
-    argv.append('--passin')
-    if config.app_id:
-        argv.append('--application=%s' % config.app_id)
-    if config.appcfg_flags:
-        for flag in config.appcfg_flags.split(' '):
-            argv.append(flag)
-    if config.ac_hostname:
-        argv.append('--server=' + config.ac_hostname)
     if options:
-        argv += list(options)
-    if not config.backend_id:
-        # For appcfg calls to frontends the action is followed by the
-        # arguments.
-        argv.append(action)
-        if args:
-            argv.extend(args)
+        options = list(options)
     else:
-        # For appcfg calls to backends the action is following the
-        # arguments.
-        argv.append('backends')
-        argv.append(config.app_dir)
-        if config.app_dir in args:
-            args.remove(config.app_dir)
-        argv.append(action)
-        if args:
-            argv.extend(args)
-    p = subprocess.Popen(argv, bufsize=0, stdin=subprocess.PIPE,
-                         stdout=subprocess.PIPE,
-                         stderr=subprocess.STDOUT)
-    stdout, stderr = p.communicate(config.password)
-    return (stdout, stderr)
+        options = []
+    options.extend(AppcfgThread.DEFAULT_OPTIONS)
+    options.append('--email=' + config.username)
+    options.append('--passin')
+    thread = AppcfgThread(config, action, options, args)
+    thread.stdin = config.password
+    thread.start()
+    thread.join()
+    return (thread.stdout, thread.stderr, thread.returncode)
 
 
 def update_app(config, options=None, rollback_retries=MAX_ROLLBACK_RETRIES):
     """Update an application with appcfg.
-
     If an update fails because a previous update was not cleanly
     finished, a rollback is tried as specified by 'rollback_retries'.
     If the rollback fails as well, 'AppcfgError' is raised. If appcfg
@@ -393,31 +506,35 @@ def update_app(config, options=None, rollback_retries=MAX_ROLLBACK_RETRIES):
         options = []
     short_username = config.username.split('@')[0]
     success = False
-    (stdout, stderr) = (None, None)
+    (stdout, stderr, retcode) = (None, None, None)
     err_msg = ROLLBACK_ERR_MESSAGE % short_username
     while rollback_retries > 0 and not success:
-        stdout, stderr = run_appcfg_with_auth(config, 'update', options,
-                                              args=[config.app_dir])
-        if re.match(err_msg, stdout, re.DOTALL):
+        stdout, stderr, retcode = run_appcfg_with_auth(config,
+                                                       'update',
+                                                       options,
+                                                       args=[config.app_dir])
+        if re.match(err_msg, stderr, re.DOTALL):
             if not config.backend_id:
                 args = [config.app_dir]
             else:
                 args = [config.backend_id]
-            stdout, stderr = run_appcfg_with_auth(config, 'rollback', options,
-                                                  args=args)
-            if 'Error' in stdout:
+            stdout, stderr, _ = run_appcfg_with_auth(config,
+                                                     'rollback',
+                                                     options,
+                                                     args=args)
+            if 'error' in stderr.lower():
                 raise AppcfgError('Could not rollback: %s' % stdout)
             rollback_retries -= 1
-        elif 'Error' in stdout:
-            msg = 'Could not update : %s' % stdout
+        elif retcode != 0:
+            msg = 'Could not update : %s' % stderr
             raise AppcfgError(msg)
         else:
             time.sleep(APP_DEPLOY_WAIT)
             success = True
-    return stdout, stderr
+    return (stdout, stderr, retcode)
 
 
-class DevAppServerThread(threading.Thread):
+class DevAppServerThread(ClientThreadBase_):
     """A thread class that can be used to run dev_appserver.
 
     '''
@@ -438,16 +555,11 @@ class DevAppServerThread(threading.Thread):
           options: A list of options to be used.
           clear_datastore: Clear datastore before starting dev_appserver.
         """
-        threading.Thread.__init__(self)
+        super(DevAppServerThread, self).__init__(config, options)
         required_attributes = ['app_id', 'app_dir', 'sdk_dir', 'app_hostname']
         _check_required_config_attr(config, required_attributes)
         self.config = config
-        if options is None:
-            self.options = []
-        else:
-            self.options = options
         self.clear_datastore = clear_datastore
-        self.pid = None
         self.app_yaml_path = os.path.join(self.config.app_dir, 'app.yaml')
         self.app_yaml_bak_path = os.path.join(self.config.app_dir,
                                               APP_YAML_BACKUP)
@@ -476,7 +588,7 @@ class DevAppServerThread(threading.Thread):
         argv.append(port_option)
         if self.clear_datastore:
             argv.append('--clear_datastore')
-        argv.extend(self.options)
+        argv.extend(self.options_)
         argv.append(self.config.app_dir)
         return argv
 
@@ -515,23 +627,8 @@ class DevAppServerThread(threading.Thread):
         # TODO(schuppe): Add a check whether the dev_appserver is actually
         # running.
 
-    def run(self):
-        argv = self._get_argv()
-        popen_obj = subprocess.Popen(argv, bufsize=0, stdin=subprocess.PIPE,
-                                     stdout=subprocess.PIPE,
-                                     stderr=subprocess.PIPE)
-        self.pid = popen_obj.pid
-        # communicate() will keep reading from stdin and
-        # stderr. Without it, the buffer would be filled up and the
-        # process blocked until the buffer can accept more data.
-        popen_obj.communicate()
-
     def stop(self):
-        if self.pid:
-            # We have to kill dev_appserver the hard way. SIGTERM is
-            # sometimes ignored which causes tests to stall until they are
-            # killed externally.
-            os.kill(self.pid, signal.SIGKILL)
+        super(DevAppServerThread, self).stop()
         self._restore_app_yaml()
 
 
@@ -607,15 +704,16 @@ def setup_app(config):
     if is_cluster_appserver(config.cluster_hostname):
         if config.backend_id:
             _create_backends_yaml(config)
-        stdout, _ = update_app(config)
-        # stdout is not a list - pylint: disable-msg=E1103
-        assert 'error' not in stdout.lower(), stdout
+        _, stderr, retcode = update_app(config)
+        # stderr is not a list - pylint: disable-msg=E1103
+        assert retcode == 0, stderr
         if config.backend_id:
             args = [config.backend_id]
-            stdout, _ = run_appcfg_with_auth(config, 'start', args=args)
-            if not 'is already started' in stdout:
-                # stdout is not a list - pylint: disable-msg=E1103
-                assert 'error' not in stdout.lower(), stdout
+            stdout, stderr, _ = run_appcfg_with_auth(config, 'start',
+                                                     args=args)
+            if not 'is already started' in stderr:
+                # stderr is not a list - pylint: disable-msg=E1103
+                assert 'error' not in stderr.lower(), stderr
         return None
     else:
         thread = DevAppServerThread(config)
@@ -635,13 +733,14 @@ def teardown_app(config, app_token):
     if is_cluster_appserver(config.cluster_hostname):
         if config.backend_id:
             args = [config.backend_id]
-            stdout, _ = run_appcfg_with_auth(config, 'stop', args=args)
-            if not 'is already stopped' in stdout:
+            _, stderr, _ = run_appcfg_with_auth(config, 'stop', args=args)
+            if not 'is already stopped' in stderr:
                 # stdout is not a list - pylint: disable-msg=E1103
-                assert 'error' not in stdout.lower(), stdout
-            stdout, _ = run_appcfg_with_auth(config, 'delete', args=args)
+                assert 'error' not in stderr.lower(), stderr
+            stdout, stderr, retcode = run_appcfg_with_auth(config, 'delete',
+                                                           args=args)
             # stdout is not a list - pylint: disable-msg=E1103
-            assert 'error' not in stdout.lower(), stdout
+            assert retcode == 0, stderr
             _restore_backends_yaml(config)
     else:
         app_token.stop()
