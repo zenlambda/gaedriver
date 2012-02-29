@@ -1,0 +1,22 @@
+New release
+===========
+
+- run tests:
+  $ ./run_tests.py all
+- update VERSION and RELEASE_NOTES
+- check README
+- build new release and smoke check:
+  $ ./setup.py sdist --formats=gztar,zip
+- build new release and upload:
+  $ ./setup.py sdist --formats=gztar,zip upload
+
+
+PyPI setup
+==========
+
+$ cat ~/.pypirc
+[server-login]
+username:USERNAME
+password:PASSWORD
+
+

@@ -12,8 +12,9 @@ things with an API.
 Current status
 ==============
 
-pre-alpha - We try to understand what's needed and how we can solve it
-in the scope of this project.
+alpha - We understand what's needed and know how to solve it. Looking for more
+testers to provide feedback on the APIs and usage in general.
+
 
 A Python Tutorial can be found at
 http://code.google.com/p/gaedriver/wiki/PythonTutorial.

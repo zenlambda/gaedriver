@@ -2,6 +2,12 @@
 gaedriver(Python) - Release Notes
 =================================
 
+0.1.0 (alpha)
+=============
+- Added custom envvar settings for tools started with gaedriver.
+- Added oauth2 support for appcfg to gaedriver library.
+- Addded support for a threaded appcfg execution to gaedriver.
+
 
 0.0.2 (pre-alpha)
 =================
