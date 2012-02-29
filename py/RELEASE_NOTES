@@ -1,0 +1,11 @@
+=================================
+gaedriver(Python) - Release Notes
+=================================
+
+
+0.0.2 (pre-alpha)
+=================
+- Made is_cluster_appserver() a public function.
+- Allow passing flags to appcfg.
+- Bugfix: app.yaml files were exploding due to inserted linebreaks.
+- Bugfix: _create_backends_yaml() applied incorrect indentation.
