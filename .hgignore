@@ -1,2 +1,6 @@
-syntax: glob
-*.pyc
+.*\.pyc$
+.*\.class$
+^java/.*target/.*
+java/.classpath
+java/.project
+java/.settings/.*
