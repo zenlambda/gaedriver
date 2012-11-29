@@ -17,6 +17,8 @@ package com.google.appengine.contrib.gaedriver;
 import static org.junit.Assert.assertEquals;
 
 import org.junit.Test;
+import org.junit.runner.RunWith;
+import org.junit.runners.JUnit4;
 import org.mockito.Mockito;
 
 import java.util.Properties;
@@ -26,6 +28,7 @@ import java.util.Properties;
  *
  * @author schuppe@google.com (Robert Schuppenies)
  */
+@RunWith(JUnit4.class)
 public class ConfigTest {
 
   @Test

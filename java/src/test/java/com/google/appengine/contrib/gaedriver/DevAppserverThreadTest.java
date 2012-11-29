@@ -1,25 +1,26 @@
 /*
  * Copyright (C) 2012 Google Inc.
  *
- * Licensed under the Apache License, Version 2.0 (the "License"); you may not
- * use this file except in compliance with the License. You may obtain a copy of
- * the License at
+ * Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except
+ * in compliance with the License. You may obtain a copy of the License at
  *
  * http://www.apache.org/licenses/LICENSE-2.0
  *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
- * WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
- * License for the specific language governing permissions and limitations under
+ * Unless required by applicable law or agreed to in writing, software distributed under the License
+ * is distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express
+ * or implied. See the License for the specific language governing permissions and limitations under
  * the License.
  */
 
 package com.google.appengine.contrib.gaedriver;
 
-import static org.junit.Assert.*;
+import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertTrue;
 
 import org.junit.Before;
 import org.junit.Test;
+import org.junit.runner.RunWith;
+import org.junit.runners.JUnit4;
 import org.mockito.Mockito;
 
 import java.io.File;
@@ -31,6 +32,7 @@ import java.util.List;
  *
  * @author schuppe@google.com (Robert Schuppenies)
  */
+@RunWith(JUnit4.class)
 public class DevAppserverThreadTest {
 
   String action;
@@ -47,7 +49,7 @@ public class DevAppserverThreadTest {
   @Test
   public void testInitNoPort() throws InvalidConfigException {
     DevAppserverThread devappThread = new DevAppserverThread(config);
-    Config mockConfig= Mockito.mock(Config.class);
+    Config mockConfig = Mockito.mock(Config.class);
     Mockito.when(mockConfig.getAppHostname()).thenReturn("localhost");
     devappThread.init(mockConfig);
     assertEquals("localhost", devappThread.host);
@@ -57,17 +59,17 @@ public class DevAppserverThreadTest {
   @Test
   public void testInitWithPort() throws InvalidConfigException {
     DevAppserverThread devappThread = new DevAppserverThread(config);
-    Config mockConfig= Mockito.mock(Config.class);
+    Config mockConfig = Mockito.mock(Config.class);
     Mockito.when(mockConfig.getAppHostname()).thenReturn("localhost:1742");
     devappThread.init(mockConfig);
     assertEquals("localhost", devappThread.host);
     assertEquals(1742, devappThread.port);
   }
 
-  @Test(expected=InvalidConfigException.class)
+  @Test(expected = InvalidConfigException.class)
   public void testInitWithInvalidPort() throws InvalidConfigException {
     DevAppserverThread devappThread = new DevAppserverThread(config);
-    Config mockConfig= Mockito.mock(Config.class);
+    Config mockConfig = Mockito.mock(Config.class);
     Mockito.when(mockConfig.getAppHostname()).thenReturn("localhost:invalidPort");
     devappThread.init(mockConfig);
   }
